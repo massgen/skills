@@ -54,13 +54,15 @@ The **MassGen skill** gives your agent four modes:
 
 ---
 
-## ⚠️ Prerequisites
+## 💡 Before You Start
+
+The skill will walk you through setup if needed, but things go smoother if you already have:
 
 1. **MassGen installed**: `pip install massgen`
-2. **AI provider authenticated**: API key (e.g., `OPENAI_API_KEY`) or login-based auth (e.g., `claude` or `codex` login)
-3. **Config file**: Run `massgen --quickstart` to create `.massgen/config.yaml`
+2. **An AI provider authenticated**: API key (e.g., `OPENAI_API_KEY`) or login-based auth (e.g., `claude` or `codex` login)
+3. **A config file**: Run `massgen --quickstart` to create `.massgen/config.yaml`
 
-> **Note:** MassGen setup requires human input for API key configuration and provider selection. Ensure your environment is set up before the skill is invoked.
+> **Note:** First-time setup requires human input (provider selection, API keys). After that, the skill runs autonomously.
 
 ---
 
