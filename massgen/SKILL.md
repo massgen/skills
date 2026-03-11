@@ -50,14 +50,16 @@ ls ~/.config/massgen/config.yaml 2>/dev/null && echo "FOUND: global config"
 - If the user gave a specific config path → use it with `--config <path>`.
 - If `.massgen/config.yaml` exists → use it (no `--config` needed).
 - If `~/.config/massgen/config.yaml` exists → use it.
-- If **neither exists** → run the web quickstart and wait for it to finish:
+- If **neither exists** → run the web quickstart **from the current working directory** (do NOT cd anywhere) and wait for it to finish:
 
 ```bash
 uv run massgen --web-quickstart
 ```
 
-This opens a browser where the user picks providers/models, enters API keys,
-and saves a config. It exits automatically when done.
+Run this from cwd so the config is saved to `.massgen/config.yaml` in the
+right project. Do NOT cd to another directory first. The quickstart opens a
+browser where the user picks providers/models, enters API keys, and saves a
+config. It exits automatically when done.
 
 **STOP here until you have a config.** Do NOT proceed with the workflow below
 until a config exists. Do NOT create config files yourself. Do NOT search
