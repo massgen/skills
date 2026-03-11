@@ -80,42 +80,41 @@ uv pip install massgen
 
 ### 2. Resolve configuration
 
-Prefer the lowest-friction path first — do NOT ask unnecessary setup questions:
+Run these checks **in order** and stop at the first match:
 
-1. If the user provides a specific config path, use it with `--config <path>` in Step 4.
-2. Otherwise, check for an existing project config at `.massgen/config.yaml`.
-3. If that does not exist, check for a global default config at `~/.config/massgen/config.yaml`.
-4. If either default exists, use it without asking extra setup questions.
-5. If no config exists and a user is available, ask them which config to use or proceed to **Setup** below.
-6. If no config exists and no user is available, stop — setup requires human input.
+**Step A — User-provided config**: If the user gave a specific config path, use it with `--config <path>` in Step 4. Done.
 
-### 3. Setup (only if no config exists)
+**Step B — Check for existing configs**:
 
-Prefer the browser quickstart first:
+```bash
+# Check project config first, then global
+ls .massgen/config.yaml 2>/dev/null && echo "FOUND: .massgen/config.yaml"
+ls ~/.config/massgen/config.yaml 2>/dev/null && echo "FOUND: ~/.config/massgen/config.yaml"
+
+# Also check for other YAML configs in .massgen/
+ls .massgen/*.yaml 2>/dev/null
+```
+
+- If `.massgen/config.yaml` exists → use it (no `--config` flag needed, it's the default). Done.
+- If `~/.config/massgen/config.yaml` exists → use it. Done.
+- If other `.yaml` files exist in `.massgen/` → show the user the list and ask which one to use.
+
+**Step C — No config exists → launch web quickstart**:
 
 ```bash
 uv run massgen --web-quickstart
 ```
 
-This opens a temporary setup flow in the browser, lets the user enter API keys,
-choose Docker or local execution, configure agents, review the generated YAML,
-pick project vs global save location, and then exits automatically when setup is
-finished.
+This opens a browser setup flow where the user enters API keys, picks providers/models,
+chooses Docker or local execution, reviews the generated YAML, and selects a save
+location. It exits automatically when setup is finished. **Wait for this to complete
+before proceeding** — once done, `.massgen/config.yaml` will exist.
 
-Only fall back to headless quickstart when:
-- the browser flow is unavailable
-- the user explicitly asks for a non-browser flow
-- you are operating in an environment where opening the browser is not practical
-
-For headless fallback, first inspect supported backends if needed:
+**Step D — Headless fallback** (only if browser is unavailable or user asks):
 
 ```bash
-uv run massgen --list-backends
-```
+uv run massgen --list-backends  # see supported providers
 
-Then use one of these:
-
-```bash
 # Single provider (three agents on one backend)
 uv run massgen --quickstart --headless \
   --config-backend <backend_type> \
@@ -135,13 +134,6 @@ Omit `--config-docker` if the user wants local execution.
 If authentication is missing:
 - for login-based backends (`claude_code`, `codex`, `copilot`), help the user run the provider login flow
 - for API key backends, help the user populate either `./.env` or `~/.massgen/.env`
-
-If quickstart still needs manual provider/model selection, ask only the minimum necessary follow-up question.
-
-To see all supported backends, models, capabilities, and auth requirements:
-```bash
-uv run massgen --list-backends
-```
 
 ## Workflow
 
