@@ -71,16 +71,21 @@ OUTPUT_FILE="${OUTPUT_FILE:-$WORK_DIR/result.md}"
 OUTPUT_LOG="$WORK_DIR/output.log"
 SUMMARY_FILE="$WORK_DIR/run_summary.json"
 VIEWER_PID=""
+MASSGEN_PID=""
 START_TIME=$(date +%s)
 
 # ── Cleanup on exit ──────────────────────────────────────────────────────────
 cleanup() {
+    if [[ -n "$MASSGEN_PID" ]]; then
+        kill "$MASSGEN_PID" 2>/dev/null || true
+        wait "$MASSGEN_PID" 2>/dev/null || true
+    fi
     if [[ -n "$VIEWER_PID" ]]; then
         kill "$VIEWER_PID" 2>/dev/null || true
         wait "$VIEWER_PID" 2>/dev/null || true
     fi
 }
-trap cleanup EXIT
+trap cleanup EXIT INT TERM
 
 # ── Build MassGen command ────────────────────────────────────────────────────
 CMD=(uv run massgen --automation --no-parse-at-references)
