@@ -38,12 +38,37 @@ Invoke MassGen for multi-agent iteration on any task — general-purpose work, e
 | plan | Create or refine a plan | Goal + constraints (+ existing plan) | `project_plan.json` (typed tasks, chunks, deps, prototypes) | `"planning"` |
 | spec | Create or refine a spec | Problem + needs (+ existing spec) | `project_spec.json` (EARS requirements, chunks, rationale) | `"spec"` |
 
+## FIRST: Check Config (do this before anything else)
+
+Before reading any other section of this skill, run this check:
+
+```bash
+ls .massgen/config.yaml 2>/dev/null && echo "FOUND: project config"
+ls ~/.config/massgen/config.yaml 2>/dev/null && echo "FOUND: global config"
+```
+
+- If the user gave a specific config path → use it with `--config <path>`.
+- If `.massgen/config.yaml` exists → use it (no `--config` needed).
+- If `~/.config/massgen/config.yaml` exists → use it.
+- If **neither exists** → run the web quickstart and wait for it to finish:
+
+```bash
+uv run massgen --web-quickstart
+```
+
+This opens a browser where the user picks providers/models, enters API keys,
+and saves a config. It exits automatically when done.
+
+**STOP here until you have a config.** Do NOT proceed with the workflow below
+until a config exists. Do NOT create config files yourself. Do NOT search
+for configs in subdirectories, parent directories, or anywhere else.
+
+---
+
 ## Scope
 
 Before starting, determine what the MassGen invocation covers. Focused invocations
 produce far better results than unscoped "do everything" runs.
-
-**When invoking this skill, specify the scope:**
 
 - **General**: the task to accomplish, relevant context, quality expectations
 - **Evaluate**: which files/artifacts to evaluate, what to ignore, evaluation focus
@@ -51,57 +76,6 @@ produce far better results than unscoped "do everything" runs.
 - **Spec**: the problem to specify, user needs, system boundaries
 
 If the user doesn't specify scope, ask them.
-
-## Important: Setup Requires Human Input
-
-MassGen setup (API key configuration, provider selection, Docker choice) currently
-requires human interaction. Before invoking this skill, ensure the environment is
-already set up — either a `.massgen/config.yaml` exists or the user has provided
-a config path. If no config exists, the Setup step below will need user input.
-
-**Config fallback behavior**: If there is no interactive user available (e.g.,
-running in a non-interactive agent environment), use whatever config was provided
-or fall back to `.massgen/config.yaml`. Do not attempt setup without a user present.
-
-## Prerequisites
-
-### 1. Check if massgen is installed
-
-```bash
-uv run massgen --help 2>/dev/null || massgen --help 2>/dev/null
-```
-
-If not installed:
-```bash
-pip install massgen
-# or
-uv pip install massgen
-```
-
-### 2. Resolve configuration
-
-Check these two locations only — do NOT search other directories:
-
-```bash
-ls .massgen/config.yaml 2>/dev/null && echo "FOUND: project config"
-ls ~/.config/massgen/config.yaml 2>/dev/null && echo "FOUND: global config"
-```
-
-1. If the user gave a specific config path → use it with `--config <path>`. Done.
-2. If `.massgen/config.yaml` exists → use it (no `--config` needed). Done.
-3. If `~/.config/massgen/config.yaml` exists → use it. Done.
-4. If neither exists → run the web quickstart and **wait for it to finish**:
-
-```bash
-uv run massgen --web-quickstart
-```
-
-This opens a browser setup flow where the user picks providers/models, enters
-API keys, and saves a config. It exits automatically when done. After it
-completes, `.massgen/config.yaml` will exist — use that.
-
-Do NOT attempt to create config files yourself. Do NOT search for configs in
-subdirectories, parent directories, or anywhere else.
 
 ## Workflow
 
