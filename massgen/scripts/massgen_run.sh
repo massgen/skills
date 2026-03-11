@@ -136,7 +136,7 @@ fi
 
 if $VIEWER && [[ -n "$LOG_DIR" ]]; then
     echo "Starting web viewer on port $VIEWER_PORT..."
-    uv run massgen viewer "$LOG_DIR" --web --port "$VIEWER_PORT" --no-browser > /dev/null 2>&1 &
+    uv run massgen viewer "$LOG_DIR" --web --port "$VIEWER_PORT" > /dev/null 2>&1 &
     VIEWER_PID=$!
     echo "Viewer running at http://localhost:$VIEWER_PORT"
 elif $VIEWER; then
