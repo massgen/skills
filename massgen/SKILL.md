@@ -217,7 +217,7 @@ cat $WORK_DIR/run_summary.json
 - `--no-cwd-context` — disable read-only CWD access
 - `--extra-args "..."` — pass additional massgen CLI flags
 
-**Timing:** expect 2-10 minutes for standard tasks, 10-30 minutes for complex ones.
+**Timing:** expect 15-45 minutes. Do not assume something is stuck — MassGen runs multiple agents through several rounds of iteration.
 
 ### Step 5: Parse the Output
 

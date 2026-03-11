@@ -128,14 +128,7 @@ for i in $(seq 1 60); do
     sleep 0.5
 done
 
-# Resolve relative LOG_DIR to absolute (MassGen outputs relative paths)
-if [[ -n "$LOG_DIR" && ! "$LOG_DIR" = /* ]]; then
-    if [[ -d "$LOG_DIR" ]]; then
-        LOG_DIR="$(cd "$LOG_DIR" && pwd)"
-    else
-        LOG_DIR="$(pwd)/$LOG_DIR"
-    fi
-fi
+# LOG_DIR is an absolute path from MassGen's automation output
 
 if [[ -n "$LOG_DIR" ]]; then
     echo "Log directory: $LOG_DIR"
@@ -160,14 +153,6 @@ DURATION=$((END_TIME - START_TIME))
 # ── Extract LOG_DIR if we didn't get it earlier ──────────────────────────────
 if [[ -z "$LOG_DIR" && -f "$OUTPUT_LOG" ]]; then
     LOG_DIR=$(grep -m1 '^LOG_DIR:' "$OUTPUT_LOG" 2>/dev/null | cut -d' ' -f2 || true)
-    # Resolve relative path
-    if [[ -n "$LOG_DIR" && ! "$LOG_DIR" = /* ]]; then
-        if [[ -d "$LOG_DIR" ]]; then
-            LOG_DIR="$(cd "$LOG_DIR" && pwd)"
-        else
-            LOG_DIR="$(pwd)/$LOG_DIR"
-        fi
-    fi
 fi
 
 # ── Write summary ────────────────────────────────────────────────────────────
