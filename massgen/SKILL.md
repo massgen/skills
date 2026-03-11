@@ -34,8 +34,8 @@ Invoke MassGen for multi-agent iteration on any task — general-purpose work, e
 | Mode | Purpose | Input | Output | Default Criteria Preset |
 |------|---------|-------|--------|------------------------|
 | general | Any task | Task description + context | Winner's deliverables in `result.md` + workspace files | Auto-generated |
-| evaluate | Critique existing work | Artifacts to evaluate | `critique_packet.md`, `verdict.json`, `next_tasks.json` | `"evaluation"` |
-| plan | Create or refine a plan | Goal + constraints (+ existing plan) | `project_plan.json` (tasks, chunks, deps, verification) | `"planning"` |
+| evaluate | Critique existing work | Artifacts to evaluate | `critique_packet.md` (with `approach_assessment`), `verdict.json`, `next_tasks.json` (with `fix_tasks`, `evolution_tasks`) | `"evaluation"` |
+| plan | Create or refine a plan | Goal + constraints (+ existing plan) | `project_plan.json` (typed tasks, chunks, deps, prototypes) | `"planning"` |
 | spec | Create or refine a spec | Problem + needs (+ existing spec) | `project_spec.json` (EARS requirements, chunks, rationale) | `"spec"` |
 
 ## Scope
@@ -175,21 +175,17 @@ issues independently. That's the whole point of multi-agent evaluation.
 
 ### Step 2: Generate Criteria
 
-Each mode has a default criteria preset that is applied automatically when no
-`--eval-criteria` flag is provided:
+Each mode has a recommended criteria preset:
 
-| Mode | Preset | Criteria Count |
-|------|--------|---------------|
-| general | Auto-generated | Based on task content |
-| evaluate | `"evaluation"` | Generated per-task |
-| plan | `"planning"` | 5 must + 3 should |
-| spec | `"spec"` | 3 must + 1 should + 1 could |
-
-**To use the default preset**: omit the `--eval-criteria` flag entirely. MassGen
-will use the preset matching the prompt content.
+| Mode | Preset | How to Apply |
+|------|--------|-------------|
+| general | Auto-generated | Omit `--criteria-file` and `--criteria-preset` |
+| evaluate | Custom or `"evaluation"` | `--criteria-file` with JSON, or `--criteria-preset evaluation` |
+| plan | `"planning"` | `--criteria-preset planning` |
+| spec | `"spec"` | `--criteria-preset spec` |
 
 For general mode, criteria are auto-generated from the task content — omit
-`--eval-criteria` unless you have specific quality axes to enforce.
+both flags unless you have specific quality axes to enforce.
 
 **To use custom criteria**: read `references/criteria_guide.md` for the format
 and writing guide, then write criteria JSON to `$WORK_DIR/criteria.json`.
@@ -217,57 +213,49 @@ EOF
 4. Replace `{{CUSTOM_FOCUS}}` with the focus directive (or empty string if none)
 5. Write the final prompt to `$WORK_DIR/prompt.md`
 
-### Step 4: Run MassGen (in background) and Open Viewer
+### Step 4: Run MassGen
 
-Launch MassGen in the background and open the web viewer so the user
-can observe progress in their browser.
+Use the launcher script (`scripts/massgen_run.sh` relative to this skill)
+to run MassGen, launch the web viewer, and wait for completion in a single
+atomic command. This avoids the double-backgrounding issues that cause agents
+to lose track of running processes.
 
-**4a. Start MassGen in background, capturing the log directory:**
-
-Run this command in the background using your agent's native mechanism
-(e.g., `run_in_background` in Claude Code):
-
-```bash
-uv run massgen --automation \
-  --no-parse-at-references \
-  --cwd-context ro \
-  --eval-criteria $WORK_DIR/criteria.json \
-  --output-file $WORK_DIR/result.md \
-  "$(cat $WORK_DIR/prompt.md)" \
-  > $WORK_DIR/output.log 2>&1
-```
-
-If using default criteria (no custom criteria file), omit the `--eval-criteria` flag.
-
-**4b. Extract the log directory and launch the web viewer:**
-
-The automation output's first line is `LOG_DIR: <path>`. Once MassGen
-has started (usually within 2 seconds), extract the log directory from
-the output and launch the viewer:
+**Run in the background** using your agent's native mechanism (e.g.,
+`run_in_background` in Claude Code):
 
 ```bash
-LOG_DIR=$(grep -m1 '^LOG_DIR:' $WORK_DIR/output.log | cut -d' ' -f2)
+# SKILL_DIR is the directory containing this SKILL.md file
+bash "$SKILL_DIR/scripts/massgen_run.sh" \
+  --work-dir "$WORK_DIR" \
+  --prompt-file "$WORK_DIR/prompt.md" \
+  --criteria-file "$WORK_DIR/criteria.json" \
+  --viewer
 ```
 
-Then launch the web viewer (also in the background):
+If using default criteria (no custom criteria file), omit `--criteria-file`.
+For planning/spec modes, use `--criteria-preset planning` or `--criteria-preset spec` instead.
+If you resolved a custom config in Step 2, add `--config <path>`.
+
+The script handles everything atomically:
+1. Launches MassGen in `--automation` mode
+2. Waits for the log directory to appear (with 30s timeout)
+3. Starts the web viewer at `http://localhost:8000`
+4. Waits for MassGen to complete
+5. Writes `$WORK_DIR/run_summary.json` with exit code, duration, log dir
+
+**After the background task completes**, read the summary:
 
 ```bash
-uv run massgen viewer "$LOG_DIR" --web
+cat $WORK_DIR/run_summary.json
 ```
 
-The viewer automatically opens `http://localhost:8000` in the user's
-browser, showing live agent rounds, voting, and convergence as they
-happen.
-
-**Flags explained:**
-- `--automation`: clean parseable output, no TUI
-- `--no-parse-at-references`: prevents MassGen from interpreting `@path` in the prompt text
-- `--cwd-context ro`: gives agents read-only access to the current working directory
-- `--eval-criteria`: passes your task-specific criteria JSON (overrides presets)
-- `--output-file`: writes the winning agent's answer to a parseable file
-
-If you resolved a custom config path in Step 2, include `--config <path>`.
-Otherwise rely on the default project/global config discovery.
+**Script options:**
+- `--viewer` — launch web viewer (opens `http://localhost:8000`)
+- `--viewer-port PORT` — use a different port
+- `--config FILE` — custom MassGen config YAML
+- `--output-file FILE` — override result path (default: `$WORK_DIR/result.md`)
+- `--no-cwd-context` — disable read-only CWD access
+- `--extra-args "..."` — pass additional massgen CLI flags
 
 **Timing:** expect 2-10 minutes for standard tasks, 10-30 minutes for complex ones.
 
@@ -340,12 +328,18 @@ trace that keeps you honest about what's done and what remains.
 **General**: read `result.md` for the winning answer. Copy deliverable
 files from the winner's workspace if applicable.
 
-**Evaluate**: read `verdict.json` — if `"iterate"`, work through the
-tasks you just grounded from `next_tasks.json`. If `"converged"`,
-proceed to delivery.
+**Evaluate**: read `verdict.json` — if `"iterate"`, check
+`approach_assessment.ceiling_status` in `next_tasks.json` first:
+- `ceiling_not_reached` → execute `fix_tasks`, then `evolution_tasks` as stretch
+- `ceiling_approaching` → execute `fix_tasks`, then `evolution_tasks`
+- `ceiling_reached` → consider re-invoking plan mode with evaluation findings
+  (see Plan-Evaluate Loop below)
+If `"converged"`, proceed to delivery.
 
 **Plan / Spec**: store the result as a living document (see below),
-then execute the grounded tasks chunk by chunk.
+then execute the grounded tasks chunk by chunk. At tasks marked with
+`eval_checkpoint`, invoke evaluate mode to assess approach viability
+before continuing (see Plan-Evaluate Loop below).
 
 ## Living Document Protocol (Plan & Spec Modes)
 
@@ -447,6 +441,55 @@ eliminates ambiguities, fills gaps, and strengthens edge case coverage.
 See `references/spec/workflow.md` for the full context template,
 output format, and lifecycle.
 
+## Plan-Evaluate Loop
+
+For complex or creative projects, plan and evaluate modes work together
+in a feedback loop:
+
+```
+Plan → Execute → Evaluate → (fix OR re-plan) → Execute → Evaluate → ...
+```
+
+### When to Use the Loop
+
+- The task has exploratory components (visual design, creative writing, UX)
+- The project is complex enough that the initial plan is partly speculative
+- Quality expectations are high and "correct but adequate" isn't enough
+- Prior iterations show diminishing returns
+
+### Loop Protocol
+
+1. **Plan**: invoke plan mode. Agents classify tasks as `deterministic` or
+   `exploratory` and create prototypes to validate assumptions
+2. **Execute**: implement the plan chunk by chunk
+3. **Evaluate**: at `eval_checkpoint` tasks (or after any exploratory chunk),
+   invoke evaluate mode
+4. **Decide**: read `approach_assessment` in the evaluation output:
+   - `ceiling_not_reached` → execute fix_tasks, continue
+   - `ceiling_approaching` → execute fix_tasks + evolution_tasks, continue
+   - `ceiling_reached` → re-invoke plan mode with evaluation discoveries
+5. **Evolve**: if re-planning, pass `approach_assessment` and `breakthroughs`
+   as context. The new plan amplifies what worked and avoids approaches that
+   hit their ceiling
+6. **Repeat** until evaluation returns "converged"
+
+### What Makes This Different from Just Re-Running Eval
+
+- Eval assesses whether the APPROACH has room to grow, not just whether
+  the OUTPUT has defects
+- When the approach is limited, the loop goes back to PLANNING, not just
+  more implementation
+- Breakthroughs discovered during execution feed FORWARD into new plans,
+  not just into preserve lists
+- The plan evolves based on evidence from execution, not speculation
+
+### Loop Termination
+
+- Max 3 plan mutations per chunk — if still not converging, escalate to user
+- If evaluation returns "converged" with `ceiling_not_reached`, the loop
+  is complete
+- If the user provides explicit direction, follow it regardless of ceiling status
+
 ## Condensed Examples
 
 ### General: Multi-Agent Task Execution
@@ -471,10 +514,11 @@ CSV files to JSON. Single page with hero, features, and CTA sections.
 EOF
 
 # Build prompt from references/general/prompt_template.md, then run
-# No --eval-criteria — criteria auto-generated from task
-uv run massgen --automation --no-parse-at-references --cwd-context ro \
-  --output-file $WORK_DIR/result.md \
-  "$(cat $WORK_DIR/prompt.md)" > $WORK_DIR/output.log 2>&1
+# No --criteria-file — criteria auto-generated from task
+bash "$SKILL_DIR/scripts/massgen_run.sh" \
+  --work-dir "$WORK_DIR" \
+  --prompt-file "$WORK_DIR/prompt.md" \
+  --viewer
 ```
 
 ### Evaluate: Pre-PR Review
@@ -512,10 +556,11 @@ cat > $WORK_DIR/criteria.json << 'EOF'
 EOF
 
 # Build prompt from template, then run
-uv run massgen --automation --no-parse-at-references --cwd-context ro \
-  --eval-criteria $WORK_DIR/criteria.json \
-  --output-file $WORK_DIR/result.md \
-  "$(cat $WORK_DIR/prompt.md)" > $WORK_DIR/output.log 2>&1
+bash "$SKILL_DIR/scripts/massgen_run.sh" \
+  --work-dir "$WORK_DIR" \
+  --prompt-file "$WORK_DIR/prompt.md" \
+  --criteria-file "$WORK_DIR/criteria.json" \
+  --viewer
 ```
 
 ### Plan: New Feature Planning
@@ -541,11 +586,12 @@ Express.js backend, React frontend, WebSocket already used for notifications.
 Two users can edit the same document with <500ms sync latency and no data loss.
 EOF
 
-# Uses default "planning" preset — no --eval-criteria needed
 # Build prompt from references/plan/prompt_template.md, then run
-uv run massgen --automation --no-parse-at-references --cwd-context ro \
-  --output-file $WORK_DIR/result.md \
-  "$(cat $WORK_DIR/prompt.md)" > $WORK_DIR/output.log 2>&1
+bash "$SKILL_DIR/scripts/massgen_run.sh" \
+  --work-dir "$WORK_DIR" \
+  --prompt-file "$WORK_DIR/prompt.md" \
+  --criteria-preset planning \
+  --viewer
 ```
 
 ### Spec: Feature Specification
@@ -568,11 +614,12 @@ Users cannot recover deleted items — deletion is permanent and irreversible.
 - Must not break existing API consumers
 EOF
 
-# Uses default "spec" preset — no --eval-criteria needed
 # Build prompt from references/spec/prompt_template.md, then run
-uv run massgen --automation --no-parse-at-references --cwd-context ro \
-  --output-file $WORK_DIR/result.md \
-  "$(cat $WORK_DIR/prompt.md)" > $WORK_DIR/output.log 2>&1
+bash "$SKILL_DIR/scripts/massgen_run.sh" \
+  --work-dir "$WORK_DIR" \
+  --prompt-file "$WORK_DIR/prompt.md" \
+  --criteria-preset spec \
+  --viewer
 ```
 
 ## Reference Files

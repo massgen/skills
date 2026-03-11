@@ -56,6 +56,11 @@ don't know about**.
 <ONLY if you have specific problems you've tried and failed to fix>
 <describe what you tried and why it didn't work — evaluators will prescribe
 a different strategy. do NOT list general concerns or quality worries here>
+
+## Prior Evaluations (optional, for iterating)
+<paste or reference verdict.json and approach_assessment from prior evaluations>
+<how many fix iterations have been attempted>
+<what approaches were tried and what happened>
 ```
 
 ## Two Evaluation Modes
@@ -71,6 +76,32 @@ The context naturally splits into two evaluation approaches:
    The evaluator discovers specific problems you didn't know existed by
    applying those criteria against the actual deliverables. This is why the
    context file should NOT contain your quality opinions.
+
+## Evaluation Intent
+
+Beyond whether problems are known or unknown, evaluation serves different
+strategic purposes. The evaluator always performs all three analyses, but
+emphasis shifts based on context:
+
+### Fix-Oriented (default for early iterations)
+- Focus: What's wrong with the current implementation?
+- Output: `fix_tasks` to address defects and close gaps
+- When: early iterations, known requirements not met, broken functionality
+
+### Evolution-Oriented (for plateaued work)
+- Focus: Is the current approach the right approach? Where is the ceiling?
+- Output: `approach_assessment` + `evolution_tasks` alongside fix tasks
+- When: 2+ iterations with diminishing returns, output is "correct but not
+  good," the user wants to push quality beyond adequate
+
+### Breakthrough-Amplification (for uneven work)
+- Focus: What's working unexpectedly well? How to restructure around it?
+- Output: breakthrough identification + restructuring recommendations
+- When: some parts significantly outshine others, a surprise discovery
+  deserves to become the organizing principle
+
+If the context file includes prior evaluation history or mentions stuck
+iterations, evolution-oriented analysis gets more weight automatically.
 
 ## Criteria Focus Areas
 
@@ -90,8 +121,8 @@ The evaluator agents produce three files in the winner's workspace:
 | File | Format | Purpose |
 |---|---|---|
 | `verdict.json` | JSON | Machine-readable verdict (`iterate`/`converged`) + per-criterion scores (E1..EN, 1-10) |
-| `next_tasks.json` | JSON | Implementation handoff: `objective`, `primary_strategy`, `tasks[]` with `implementation_guidance` |
-| `critique_packet.md` | Markdown | Full prose critique (see sections below) |
+| `next_tasks.json` | JSON | Implementation handoff: `approach_assessment`, `fix_tasks[]`, `evolution_tasks[]`, flat `tasks[]` fallback |
+| `critique_packet.md` | Markdown | Full prose critique including `approach_assessment` (see sections below) |
 
 **`verdict.json` schema:**
 ```json
@@ -109,26 +140,25 @@ The evaluator agents produce three files in the winner's workspace:
 **`next_tasks.json` schema** (when verdict is "iterate"):
 ```json
 {
-  "schema_version": "1",
+  "schema_version": "2",
   "objective": "...",
   "primary_strategy": "...",
   "why_this_strategy": "...",
-  "deprioritize_or_remove": ["..."],
-  "tasks": [
-    {
-      "id": "task_id",
-      "description": "What to do",
-      "implementation_guidance": "Step-by-step HOW with specific techniques",
-      "priority": "high",
-      "depends_on": [],
-      "verification": "How to verify this task is done",
-      "verification_method": "Concrete check to run",
-      "metadata": {
-        "impact": "transformative",
-        "relates_to": ["E1", "E3"]
-      }
+  "approach_assessment": {
+    "ceiling_status": "ceiling_not_reached|ceiling_approaching|ceiling_reached",
+    "ceiling_explanation": "...",
+    "breakthroughs": [{"element": "...", "why": "...", "amplification": "..."}],
+    "paradigm_shift": {
+      "recommended": false,
+      "current_limitation": "...",
+      "alternative_approach": "...",
+      "transferable_elements": ["..."]
     }
-  ]
+  },
+  "deprioritize_or_remove": ["..."],
+  "fix_tasks": [{"id": "...", "task_category": "fix", "description": "...", "implementation_guidance": "...", "priority": "high", "depends_on": [], "verification": "...", "verification_method": "...", "metadata": {"impact": "incremental", "relates_to": ["E1"]}}],
+  "evolution_tasks": [{"id": "...", "task_category": "evolution", "description": "...", "implementation_guidance": "...", "priority": "high", "depends_on": [], "verification": "...", "verification_method": "...", "metadata": {"impact": "transformative", "relates_to": ["E1"]}}],
+  "tasks": ["... flat union of fix_tasks + evolution_tasks for backward compatibility"]
 }
 ```
 
@@ -140,6 +170,7 @@ The evaluator agents produce three files in the winner's workspace:
 | `criterion_findings` | Where the work falls short, with evidence |
 | `cross_answer_synthesis` | Strongest dimensions, gaps, what improvement looks like |
 | `unexplored_approaches` | 1-3 fresh ideas nobody tried yet |
+| `approach_assessment` | Ceiling analysis, breakthrough identification, paradigm shift recommendation |
 | `preserve` | What must survive into the next revision |
 | `improvement_spec` | Design spec with `concrete_steps` per criterion |
 | `verification_plan` | Checks to rerun after implementation |
@@ -155,12 +186,26 @@ Read `verdict.json` first:
 
 ### Grounding (iterate verdict)
 
-Before executing anything, enter your native task/plan mode and create
-one tracked task per entry in `next_tasks.json`:
+Before executing anything, read `approach_assessment` to decide your strategy:
+
+**1. Check ceiling status:**
+- `ceiling_not_reached` → ground and execute `fix_tasks` normally.
+  Treat `evolution_tasks` as stretch goals after fixes are complete.
+- `ceiling_approaching` → ground and execute `fix_tasks` first to close
+  remaining gaps, then execute `evolution_tasks` to push toward the
+  higher ceiling.
+- `ceiling_reached` → do NOT execute `fix_tasks` first (they optimize a
+  limited approach). Consider re-invoking plan mode with the evaluation
+  findings to get a fundamentally revised plan. See "Re-invoking Plan
+  Mode" below.
+
+**2. Enter your native task/plan mode** and create tracked tasks:
 
 1. Enter task planning mode (e.g., TodoWrite in Claude Code)
-2. Create a tracked task for each item in `tasks[]`, preserving:
+2. Create a tracked task for each item in the relevant task arrays,
+   preserving:
    - `description` and `implementation_guidance` (the specific HOW)
+   - `task_category` ("fix" or "evolution") — track these separately
    - `depends_on` ordering
    - `verification` and `verification_method` as explicit sub-tasks
 3. Include a final verification task for each criterion that scored low
@@ -180,6 +225,27 @@ Work through tasks in dependency order. For each task:
 - Mark the task complete only after its `verification_method` passes
 - When all tasks are done, consider re-invoking the skill for another
   evaluation round to confirm convergence
+
+### Re-invoking Plan Mode After Evaluation
+
+When evaluation reveals the approach itself needs to change (not just the
+implementation), feed evaluation discoveries back into planning:
+
+1. Set MODE="plan"
+2. Write context.md with:
+   - The original goal (unchanged)
+   - The current plan from `workspace/plan.json` (if one exists)
+   - The evaluation's `approach_assessment` and `breakthroughs`
+   - What approaches were tried and why they hit their ceiling
+3. This produces a NEW plan that incorporates execution discoveries
+4. Store as a new plan in `.massgen/plans/` (don't overwrite the original)
+5. Re-ground the new plan in your native task system
+
+**When NOT to re-plan:**
+- Implementation is hard but the approach is sound
+- You're in the middle of a deterministic chunk (finish it first)
+- Evaluation identified fixes, not fundamental approach problems
+- You've re-planned more than 3 times for the same chunk (escalate to user)
 
 ## Full Example: Pre-PR Code Review
 

@@ -156,6 +156,22 @@ no `--eval-criteria` flag is provided in evaluate mode.
 
 Custom criteria via `--eval-criteria` always override the default preset.
 
+## Evolution-Aware Criteria
+
+For tasks that go through multiple plan-evaluate cycles, consider adding a
+criterion that assesses approach quality, not just output quality:
+
+```json
+{
+  "text": "Approach viability: the implementation approach has meaningful room for improvement through iteration, OR represents the best available strategy for this task. An approach that produces correct but mediocre output with no path to excellence fails this criterion.",
+  "category": "should"
+}
+```
+
+This prevents the system from converging on a technically correct but
+fundamentally limited approach. Pair it with task-specific criteria that
+assess the actual output.
+
 ## Anti-Patterns
 
 | Don't | Do Instead |

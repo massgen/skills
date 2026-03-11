@@ -41,6 +41,16 @@ them out. Keep digging for:
 Prefer a sharp, actionable critique over praise. Mention strengths only when
 they should be preserved in the next revision.
 
+Beyond finding weaknesses, also assess:
+- whether the current approach has room to grow or has hit its ceiling
+- whether any aspect shows breakthrough quality that should be amplified,
+  not just preserved
+- whether the work would benefit more from fixing what's wrong or from
+  pursuing a fundamentally different approach
+- whether the fundamental choices the work is built on are the right ones,
+  not just well-executed ones — early decisions become invisible assumptions
+  that constrain everything after them
+
 ## Context
 
 The following context file describes the task, requirements, and current state
@@ -101,6 +111,40 @@ approaches, strategies, or ideas that:
 
 For each, explain: what the idea is, why it would matter, and how it relates
 to the task requirements.
+
+#### `approach_assessment`
+
+Before writing improvement tasks, step back and assess the fundamental approach:
+
+**Ceiling analysis**: Is this approach near its quality ceiling?
+- Is the work getting incrementally better but not meaningfully better?
+- Are the remaining improvements cosmetic rather than structural?
+- Would fixing every identified weakness produce genuinely excellent output,
+  or just adequate output with no defects?
+- Is the approach fundamentally limited by a design choice that no amount of
+  polish can overcome?
+
+State one of:
+- `ceiling_not_reached`: significant room for improvement within this approach.
+  Fixes will meaningfully improve quality.
+- `ceiling_approaching`: near the ceiling. Remaining improvements are incremental.
+  Consider whether a different approach would have a higher ceiling.
+- `ceiling_reached`: hit the quality ceiling. Further iteration yields diminishing
+  returns. A paradigm shift is needed to reach the next quality tier.
+
+**Breakthrough identification**: Did any aspect demonstrate unexpectedly high
+quality or an approach that worked much better than expected? If so:
+- Name the breakthrough specifically
+- Explain WHY it works so well
+- Recommend whether the overall work should be restructured around this
+  breakthrough — not just preserved, but amplified as the new organizing
+  principle
+
+**Paradigm shift recommendation** (when ceiling is approaching or reached):
+- What structural choice creates the ceiling
+- What a fundamentally different approach would look like
+- Why the new approach would have a higher ceiling
+- What elements from the current work would transfer
 
 #### `preserve`
 
@@ -188,28 +232,72 @@ be about improving the critique itself.
 
 ```json
 {
-  "schema_version": "1",
+  "schema_version": "2",
   "objective": "...",
   "primary_strategy": "...",
   "why_this_strategy": "...",
+  "approach_assessment": {
+    "ceiling_status": "ceiling_not_reached|ceiling_approaching|ceiling_reached",
+    "ceiling_explanation": "Why this ceiling assessment",
+    "breakthroughs": [
+      {
+        "element": "What works unexpectedly well",
+        "why": "Why it works",
+        "amplification": "How to restructure around it"
+      }
+    ],
+    "paradigm_shift": {
+      "recommended": false,
+      "current_limitation": "What structural choice creates the ceiling",
+      "alternative_approach": "What a fundamentally different approach looks like",
+      "transferable_elements": ["What carries over from current work"]
+    }
+  },
   "deprioritize_or_remove": ["..."],
-  "tasks": [
+  "fix_tasks": [
     {
-      "id": "task_id",
-      "description": "What to do",
-      "implementation_guidance": "Detailed step-by-step HOW with specific techniques, code patterns, and anchored references to the current implementation",
+      "id": "fix_id",
+      "task_category": "fix",
+      "description": "What to fix",
+      "implementation_guidance": "Step-by-step HOW within the current approach",
       "priority": "high",
       "depends_on": [],
-      "verification": "How to verify this task is done",
-      "verification_method": "Concrete check to run",
+      "verification": "How to verify",
+      "verification_method": "Concrete check",
+      "metadata": {
+        "impact": "incremental",
+        "relates_to": ["E1", "E3"]
+      }
+    }
+  ],
+  "evolution_tasks": [
+    {
+      "id": "evolve_id",
+      "task_category": "evolution",
+      "description": "What to transform",
+      "implementation_guidance": "Step-by-step HOW for the paradigm shift or breakthrough amplification",
+      "priority": "high",
+      "depends_on": [],
+      "verification": "How to verify the evolution succeeded",
+      "verification_method": "Concrete check",
       "metadata": {
         "impact": "transformative",
         "relates_to": ["E1", "E3"]
       }
     }
-  ]
+  ],
+  "tasks": ["... flat array combining fix_tasks + evolution_tasks for backward compatibility"]
 }
 ```
+
+**Task categories:**
+- **`fix_tasks`**: address defects, missing requirements, broken functionality
+  within the current approach. These make the existing work correct and complete.
+- **`evolution_tasks`**: transform the work's ambition level, restructure around
+  breakthroughs, or implement paradigm shifts. These change the approach itself
+  to reach a higher quality ceiling.
+- **`tasks`**: flat backward-compatible array containing all tasks from both
+  categories, each tagged with `task_category: "fix"` or `"evolution"`.
 
 Rules:
 - Prefer execution-oriented tasks that fix multiple weak criteria together
@@ -218,8 +306,19 @@ Rules:
   step-by-step HOW, not just WHAT. Name specific techniques, code patterns,
   functions, selectors. When the agent likely tried something before, diagnose
   WHY it failed and prescribe a different strategy
-- Every task must include `id`, `description`, `implementation_guidance`,
-  `priority`, `depends_on`, `verification`, and `verification_method`
+- Every task must include `id`, `task_category`, `description`,
+  `implementation_guidance`, `priority`, `depends_on`, `verification`, and
+  `verification_method`
+- **`evolution_tasks` are always required** — at least 1-2 evolution tasks must
+  be present regardless of ceiling status. These are the "what would make this
+  genuinely impressive" tasks, always available as fallback when fix iterations
+  produce diminishing returns. Evolution tasks must be substantial and
+  transformative, not incremental polish relabeled as evolution
+- When `ceiling_not_reached`: fix_tasks are primary, evolution_tasks are ready
+  if fixes plateau
+- When `ceiling_approaching` or `ceiling_reached`: evolution_tasks become
+  primary, fix_tasks are optional correctness work
+- Always populate the flat `tasks` array as a union of both categories
 
 ## Your Answer
 
@@ -247,6 +346,35 @@ prior iteration attempts. When critiquing:
 - If a criterion appears to have been worked on extensively with little
   improvement, assume the implementer is stuck and needs a fundamentally
   different strategy, not a refinement of the same approach
+
+### Approach Ceiling Detection
+
+When evaluating work that has been through multiple iterations:
+- Look for diminishing returns: each iteration improves less than the last
+- Check whether improvements are structural or cosmetic — if recent iterations
+  only added surface polish, the approach may be at its ceiling
+- Assess whether the fundamental design choice (layout structure, algorithm,
+  architecture, narrative frame) is sound or imposes a quality ceiling that
+  no amount of refinement can break through
+- If the approach is at its ceiling, the most valuable feedback is NOT
+  "fix X, Y, Z" but rather "the approach itself limits quality — here's
+  what a fundamentally better approach would look like"
+
+## Breakthrough Amplification
+
+When you identify something that works exceptionally well — not just "good
+enough" but genuinely excellent — don't just list it under `preserve`. Ask
+whether the rest of the work should be restructured around this strength:
+
+- If one section/component is dramatically better than others, consider
+  whether its technique could lift the weaker sections
+- If a creative choice produces unexpectedly strong results, recommend
+  doubling down rather than merely maintaining it
+- If a technical approach proves elegant, assess whether it could simplify
+  or replace more complex approaches used elsewhere
+
+Breakthroughs are rare and valuable. Help the implementer recognize and
+amplify them, not just protect them from regression.
 
 ## Do Not
 

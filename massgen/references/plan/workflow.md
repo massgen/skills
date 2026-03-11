@@ -49,6 +49,12 @@ Write `$WORK_DIR/context.md` with this structure:
 ## Success Criteria
 <what makes this plan good enough to execute>
 
+## Execution Context (optional, if re-planning after evaluation)
+<what was learned during execution that changes the plan>
+<evaluation findings that triggered re-planning — paste approach_assessment>
+<what approaches were tried and why they hit their ceiling>
+<what breakthroughs should be amplified in the new plan>
+
 ## Custom Format (optional)
 <if the user has their own plan format, include it here so agents produce
 output in that format instead of the default project_plan.json>
@@ -84,14 +90,18 @@ Same schema as MassGen's `--plan` mode:
     {
       "id": "F001",
       "chunk": "C01_foundation",
+      "task_type": "deterministic|exploratory",
       "description": "Feature Name - what it accomplishes, expected outcome",
       "status": "pending",
       "depends_on": ["F000"],
       "priority": "high|medium|low",
+      "success_criteria": ["Only for exploratory tasks: what good looks like"],
       "metadata": {
         "verification": "How to verify this task is complete",
         "verification_method": "Output-first verification approach",
-        "verification_group": "optional_group_name"
+        "verification_group": "optional_group_name",
+        "evolution_hooks": ["Discoveries that should trigger plan revision"],
+        "eval_checkpoint": false
       }
     }
   ]
@@ -106,6 +116,7 @@ Organized into purpose-driven subdirectories:
 - `framework/` — architecture decisions, technology choices with rationale, design patterns selected
 - `risks/` — risk register, mitigation strategies, dependency analysis
 - `requirements/` — user stories, acceptance criteria, requirements docs
+- `prototypes/` — quick proof-of-concept artifacts for exploratory tasks
 
 Chunks are ordered as a valid DAG (C01_foundation, C02_backend, etc.).
 
@@ -202,3 +213,48 @@ This creates a new plan directory with a fresh `frozen/` snapshot.
 
 If you deviate from the plan, update `workspace/plan.json` first.
 An outdated plan is worse than no plan.
+
+## Plan-Evaluate Integration
+
+The plan is not complete when execution begins — it completes when the
+feedback loop between execution and evaluation has stabilized.
+
+### Mid-Execution Evaluation Checkpoints
+
+At tasks marked with `"eval_checkpoint": true` (or after completing any
+exploratory chunk), invoke the massgen skill in evaluate mode:
+
+1. Set MODE="evaluate"
+2. Write context.md describing what was built, the original plan task,
+   and the `success_criteria` from the plan
+3. Include the current `workspace/plan.json` as context so evaluators
+   can assess whether the plan itself needs mutation
+4. Run MassGen evaluation
+5. Read `verdict.json` and `next_tasks.json`:
+   - If "converged" with high scores: proceed to next chunk
+   - If "iterate" with `ceiling_not_reached`: execute fix_tasks, re-evaluate
+   - If "iterate" with `ceiling_approaching` or `ceiling_reached`: consider
+     re-planning (see Plan Mutation below)
+
+### Plan Mutation Protocol
+
+When evaluation reveals the plan needs to change (not just the
+implementation):
+
+1. Read the evaluation's `approach_assessment`
+2. If `ceiling_reached` or `paradigm_shift.recommended`, update
+   `workspace/plan.json`:
+   - Mark affected tasks with `"status": "superseded"`
+   - Add new tasks that reflect the evolved approach
+   - Update `evolution_hooks` based on what was learned
+   - Preserve the chunk DAG validity
+3. Re-ground the updated plan in your native task system
+4. Continue execution from the new tasks
+
+### When NOT to Mutate the Plan
+
+- Implementation is hard but the approach is sound
+- You're in the middle of a deterministic chunk (finish it first)
+- The evaluation identified fixes, not fundamental approach problems
+- You've mutated the plan more than 3 times for the same chunk
+  (escalate to user instead)
