@@ -80,60 +80,28 @@ uv pip install massgen
 
 ### 2. Resolve configuration
 
-Run these checks **in order** and stop at the first match:
-
-**Step A — User-provided config**: If the user gave a specific config path, use it with `--config <path>` in Step 4. Done.
-
-**Step B — Check for existing configs**:
+Check these two locations only — do NOT search other directories:
 
 ```bash
-# Check project config first, then global
-ls .massgen/config.yaml 2>/dev/null && echo "FOUND: .massgen/config.yaml"
-ls ~/.config/massgen/config.yaml 2>/dev/null && echo "FOUND: ~/.config/massgen/config.yaml"
-
-# Also check for other YAML configs in .massgen/
-ls .massgen/*.yaml 2>/dev/null
+ls .massgen/config.yaml 2>/dev/null && echo "FOUND: project config"
+ls ~/.config/massgen/config.yaml 2>/dev/null && echo "FOUND: global config"
 ```
 
-- If `.massgen/config.yaml` exists → use it (no `--config` flag needed, it's the default). Done.
-- If `~/.config/massgen/config.yaml` exists → use it. Done.
-- If other `.yaml` files exist in `.massgen/` → show the user the list and ask which one to use.
-
-**Step C — No config exists → launch web quickstart**:
+1. If the user gave a specific config path → use it with `--config <path>`. Done.
+2. If `.massgen/config.yaml` exists → use it (no `--config` needed). Done.
+3. If `~/.config/massgen/config.yaml` exists → use it. Done.
+4. If neither exists → run the web quickstart and **wait for it to finish**:
 
 ```bash
 uv run massgen --web-quickstart
 ```
 
-This opens a browser setup flow where the user enters API keys, picks providers/models,
-chooses Docker or local execution, reviews the generated YAML, and selects a save
-location. It exits automatically when setup is finished. **Wait for this to complete
-before proceeding** — once done, `.massgen/config.yaml` will exist.
+This opens a browser setup flow where the user picks providers/models, enters
+API keys, and saves a config. It exits automatically when done. After it
+completes, `.massgen/config.yaml` will exist — use that.
 
-**Step D — Headless fallback** (only if browser is unavailable or user asks):
-
-```bash
-uv run massgen --list-backends  # see supported providers
-
-# Single provider (three agents on one backend)
-uv run massgen --quickstart --headless \
-  --config-backend <backend_type> \
-  --config-model <model> \
-  --config-docker
-
-# Mixed providers (one explicit agent per backend)
-uv run massgen --quickstart --headless \
-  --quickstart-agent backend=claude,model=claude-opus-4-6 \
-  --quickstart-agent backend=openai,model=gpt-5.4 \
-  --quickstart-agent backend=gemini,model=gemini-3-flash-preview \
-  --config-docker
-```
-
-Omit `--config-docker` if the user wants local execution.
-
-If authentication is missing:
-- for login-based backends (`claude_code`, `codex`, `copilot`), help the user run the provider login flow
-- for API key backends, help the user populate either `./.env` or `~/.massgen/.env`
+Do NOT attempt to create config files yourself. Do NOT search for configs in
+subdirectories, parent directories, or anywhere else.
 
 ## Workflow
 
