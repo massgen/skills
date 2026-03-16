@@ -38,32 +38,102 @@ Invoke MassGen for multi-agent iteration on any task — general-purpose work, e
 | plan | Create or refine a plan | Goal + constraints (+ existing plan) | `project_plan.json` (typed tasks, chunks, deps, prototypes) | `"planning"` |
 | spec | Create or refine a spec | Problem + needs (+ existing spec) | `project_spec.json` (EARS requirements, chunks, rationale) | `"spec"` |
 
-## FIRST: Check Config (do this before anything else)
+## FIRST: Confirm Config (do this before anything else)
 
-Before reading any other section of this skill, run this check:
+**Always ask the user which config to use.** The config controls which models
+run and how many agents are spawned — this directly affects quality and cost.
+Never silently pick a config. The user must confirm the choice every time.
+
+### Step A: Check what the user already specified
+
+Scan the user's message for any config signal before searching:
+
+| Signal in message | What to do |
+|---|---|
+| Explicit file path (e.g. `--config foo.yaml`, `configs/team.yaml`) | Go to Step D — verify it exists, then confirm |
+| Provider/model name (e.g. "use Claude", "GPT-4 agents", "Gemini") | Note the preference; use it to rank options in Step B |
+| Named config (e.g. "the teams config", "my 3-agent setup") | Search for a match in Step B, confirm before using |
+| "Same as last time" / "use recent" | Find the last-used config (see Step B), confirm before using |
+| Nothing about config | Proceed to Step B |
+
+### Step B: Discover available configs and models
+
+Run these checks and collect all found paths:
 
 ```bash
-ls .massgen/config.yaml 2>/dev/null && echo "FOUND: project config"
-ls ~/.config/massgen/config.yaml 2>/dev/null && echo "FOUND: global config"
+# Standard locations
+ls .massgen/config.yaml 2>/dev/null && echo "PROJECT: .massgen/config.yaml"
+ls ~/.config/massgen/config.yaml 2>/dev/null && echo "GLOBAL: ~/.config/massgen/config.yaml"
+
+# Recently used (from past skill runs in this project)
+ls -t .massgen/*/run_summary.json 2>/dev/null | head -5
 ```
 
-- If the user gave a specific config path → use it with `--config <path>`.
-- If `.massgen/config.yaml` exists → use it (no `--config` needed).
-- If `~/.config/massgen/config.yaml` exists → use it.
-- If **neither exists** → run the web quickstart **from the current working directory** (do NOT cd anywhere) and wait for it to finish:
+If the user said "same as last time", check the most recent `run_summary.json` for
+a `"config"` field — that's the last-used path.
+
+If the user mentioned a provider or model name but you need to verify what's
+available, run:
 
 ```bash
-uv run massgen --web-quickstart
+uv run massgen --list-backends
 ```
 
-Run this from cwd so the config is saved to `.massgen/config.yaml` in the
-right project. Do NOT cd to another directory first. The quickstart opens a
-browser where the user picks providers/models, enters API keys, and saves a
-config. It exits automatically when done.
+This prints all supported backends with their models, capabilities, and required
+API keys — useful for matching a user's stated preference to a real backend name.
 
-**STOP here until you have a config.** Do NOT proceed with the workflow below
-until a config exists. Do NOT create config files yourself. Do NOT search
-for configs in subdirectories, parent directories, or anywhere else.
+**If no configs are found at all**, do NOT create a YAML file yourself.
+Instead, use the headless quickstart, which auto-detects available API keys
+and generates a config without requiring a browser:
+
+```bash
+uv run massgen --quickstart --headless
+```
+
+This writes a config to `.massgen/config.yaml` and exits. If you need a specific
+backend, add `--quickstart-agent backend=claude,model=claude-opus-4-6` (repeat
+for multiple agents). Only fall back to `--web-quickstart` if the user
+explicitly wants the browser-based setup wizard.
+
+### Step C: Ask the user to confirm
+
+Use **AskUserQuestion** to present the options. Format the question clearly:
+
+> I found these MassGen configs:
+> 1. `.massgen/config.yaml` — project config
+> 2. `~/.config/massgen/config.yaml` — global config
+>
+> Which would you like to use? You can also paste a path to a different config,
+> say "create new" to generate one, or tell me which provider/model you prefer.
+
+Rules for presenting options:
+- List every found config with its location label (project / global / path)
+- If the user expressed a preference (provider name, agent count), note which
+  option best matches and say why
+- Always include "create new" as an option
+- If only one config exists, still ask — just make it easy: "I found one config
+  at `.massgen/config.yaml` — use it, or would you prefer a different one?"
+
+### Step D: Resolve the user's answer
+
+| User response | Resolution |
+|---|---|
+| Picks a number from the list | Use that config path |
+| Pastes or types a file path | Verify it exists; if not, report error and stop |
+| Describes preference (e.g. "the Claude one", "use Gemini") | Match to discovered list or run `--list-backends` to find it; confirm |
+| Says "default" or presses enter with one option | Use the single discovered config |
+| Says "create new" / "generate one" | Run `uv run massgen --quickstart --headless` from cwd, wait for exit |
+| Specifies backend+model (e.g. "3 Claude agents") | Run headless quickstart with explicit `--quickstart-agent` flags |
+
+Once resolved, pass the path via `--config <path>` in the `massgen_run.sh`
+invocation (Step 4). If the user confirmed `.massgen/config.yaml` (the implicit
+default), you may omit `--config`.
+
+**STOP here until you have a confirmed config.** Do NOT proceed to Scope or
+Workflow until the user has explicitly chosen a config. Do NOT write config
+YAML files yourself — use the headless quickstart to generate them. Do NOT
+search for configs in subdirectories, parent directories, or anywhere else
+beyond the standard locations above.
 
 ---
 
