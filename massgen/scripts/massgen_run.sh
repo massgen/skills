@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# massgen_run.sh — Single launcher for MassGen skill invocations.
+# massgen_run.sh — Launch a MassGen checkpoint delegation.
 #
-# Handles the full orchestration atomically: launch MassGen, extract log dir,
-# start the web viewer, wait for completion, write a summary. This eliminates
-# the multi-step background coordination that AI agents tend to mishandle.
+# Handles the full delegation atomically: launch MassGen with the WebUI,
+# wait for completion, write a summary. The WebUI runs by default so users
+# can watch the team's progress in real time.
 #
 # Usage:
 #   bash <skill_dir>/scripts/massgen_run.sh --work-dir $WORK_DIR --prompt-file $WORK_DIR/prompt.md [options]
@@ -15,8 +15,8 @@
 #   --config FILE           Path to MassGen config YAML (optional)
 #   --criteria-preset NAME  Criteria preset name (e.g., planning, evaluation, persona)
 #   --output-file FILE      Path for result output (default: $WORK_DIR/result.md)
-#   --viewer                Launch web viewer for live observation
-#   --viewer-port PORT      Port for web viewer (default: 8000)
+#   --no-webui              Disable WebUI (run headless)
+#   --webui-port PORT       Port for WebUI (default: 8000)
 #   --no-cwd-context        Disable cwd-context (default: ro)
 #   --extra-args "..."      Additional massgen CLI args (quoted string)
 #
@@ -34,29 +34,29 @@ CRITERIA_FILE=""
 CRITERIA_PRESET=""
 CONFIG_FILE=""
 OUTPUT_FILE=""
-VIEWER=false
-VIEWER_PORT=8000
+WEBUI=true
+WEBUI_PORT=8000
 CWD_CONTEXT="ro"
 EXTRA_ARGS=""
 
 # ── Parse args ────────────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --work-dir)      WORK_DIR="$2"; shift 2 ;;
-        --prompt-file)   PROMPT_FILE="$2"; shift 2 ;;
-        --criteria-file) CRITERIA_FILE="$2"; shift 2 ;;
+        --work-dir)        WORK_DIR="$2"; shift 2 ;;
+        --prompt-file)     PROMPT_FILE="$2"; shift 2 ;;
+        --criteria-file)   CRITERIA_FILE="$2"; shift 2 ;;
         --criteria-preset) CRITERIA_PRESET="$2"; shift 2 ;;
-        --config)        CONFIG_FILE="$2"; shift 2 ;;
-        --output-file)   OUTPUT_FILE="$2"; shift 2 ;;
-        --viewer)        VIEWER=true; shift ;;
-        --viewer-port)   VIEWER_PORT="$2"; shift 2 ;;
-        --no-cwd-context) CWD_CONTEXT=""; shift ;;
-        --extra-args)    EXTRA_ARGS="$2"; shift 2 ;;
+        --config)          CONFIG_FILE="$2"; shift 2 ;;
+        --output-file)     OUTPUT_FILE="$2"; shift 2 ;;
+        --no-webui)        WEBUI=false; shift ;;
+        --webui-port)      WEBUI_PORT="$2"; shift 2 ;;
+        --no-cwd-context)  CWD_CONTEXT=""; shift ;;
+        --extra-args)      EXTRA_ARGS="$2"; shift 2 ;;
         *) echo "Unknown option: $1" >&2; exit 1 ;;
     esac
 done
 
-# ── Validate ──────────────────────────────────────────────────────────────────
+# ── Validate args ─────────────────────────────────────────────────────────────
 if [[ -z "$WORK_DIR" ]]; then
     echo "Error: --work-dir is required" >&2
     exit 1
@@ -70,19 +70,45 @@ mkdir -p "$WORK_DIR"
 OUTPUT_FILE="${OUTPUT_FILE:-$WORK_DIR/result.md}"
 OUTPUT_LOG="$WORK_DIR/output.log"
 SUMMARY_FILE="$WORK_DIR/run_summary.json"
-VIEWER_PID=""
 MASSGEN_PID=""
 START_TIME=$(date +%s)
+
+# ── Pre-flight: check MassGen installed ──────────────────────────────────────
+if ! command -v massgen &>/dev/null && ! uv run massgen --help &>/dev/null 2>&1; then
+    echo "Error: MassGen is not installed." >&2
+    echo "Install with: uv tool install massgen" >&2
+    exit 1
+fi
+
+# ── Pre-flight: resolve config ───────────────────────────────────────────────
+if [[ -z "$CONFIG_FILE" ]]; then
+    # Auto-discover config
+    if [[ -f ".massgen/config.yaml" ]]; then
+        CONFIG_FILE=".massgen/config.yaml"
+        echo "Using config: $CONFIG_FILE"
+    elif [[ -f "$HOME/.config/massgen/config.yaml" ]]; then
+        CONFIG_FILE="$HOME/.config/massgen/config.yaml"
+        echo "Using config: $CONFIG_FILE"
+    else
+        echo "No MassGen config found. Launching setup wizard..."
+        echo "Complete setup in your browser, then this script will continue."
+        uv run massgen --web-quickstart --web-port "$WEBUI_PORT"
+        # web-quickstart writes .massgen/config.yaml and exits
+        if [[ -f ".massgen/config.yaml" ]]; then
+            CONFIG_FILE=".massgen/config.yaml"
+            echo "Config created: $CONFIG_FILE"
+        else
+            echo "Error: Setup was cancelled or failed. No config created." >&2
+            exit 1
+        fi
+    fi
+fi
 
 # ── Cleanup on exit ──────────────────────────────────────────────────────────
 cleanup() {
     if [[ -n "$MASSGEN_PID" ]]; then
         kill "$MASSGEN_PID" 2>/dev/null || true
         wait "$MASSGEN_PID" 2>/dev/null || true
-    fi
-    if [[ -n "$VIEWER_PID" ]]; then
-        kill "$VIEWER_PID" 2>/dev/null || true
-        wait "$VIEWER_PID" 2>/dev/null || true
     fi
 }
 trap cleanup EXIT INT TERM
@@ -104,6 +130,11 @@ if [[ -n "$CONFIG_FILE" && -f "$CONFIG_FILE" ]]; then
 fi
 CMD+=(--output-file "$OUTPUT_FILE")
 
+# WebUI: runs as part of the MassGen process (real-time WebSocket streaming)
+if $WEBUI; then
+    CMD+=(--web --web-port "$WEBUI_PORT" --no-browser)
+fi
+
 # Add extra args (word-split intentionally)
 if [[ -n "$EXTRA_ARGS" ]]; then
     # shellcheck disable=SC2206
@@ -115,14 +146,17 @@ PROMPT_CONTENT=$(cat "$PROMPT_FILE")
 CMD+=("$PROMPT_CONTENT")
 
 # ── Launch MassGen ───────────────────────────────────────────────────────────
-echo "Starting MassGen..."
+echo "Delegating to MassGen team..."
 "${CMD[@]}" > "$OUTPUT_LOG" 2>&1 &
 MASSGEN_PID=$!
 
-# ── Wait for LOG_DIR and launch viewer ───────────────────────────────────────
+if $WEBUI; then
+    echo "WebUI: http://localhost:$WEBUI_PORT"
+fi
+
+# ── Wait for LOG_DIR ─────────────────────────────────────────────────────────
 LOG_DIR=""
 
-# Wait up to 30 seconds for LOG_DIR to appear
 for i in $(seq 1 60); do
     if [[ -f "$OUTPUT_LOG" ]]; then
         LOG_DIR=$(grep -m1 '^LOG_DIR:' "$OUTPUT_LOG" 2>/dev/null | cut -d' ' -f2 || true)
@@ -133,23 +167,12 @@ for i in $(seq 1 60); do
     sleep 0.5
 done
 
-# LOG_DIR is an absolute path from MassGen's automation output
-
 if [[ -n "$LOG_DIR" ]]; then
     echo "Log directory: $LOG_DIR"
 fi
 
-if $VIEWER && [[ -n "$LOG_DIR" ]]; then
-    echo "Starting web viewer on port $VIEWER_PORT..."
-    uv run massgen viewer "$LOG_DIR" --web --port "$VIEWER_PORT" > /dev/null 2>&1 &
-    VIEWER_PID=$!
-    echo "Viewer running at http://localhost:$VIEWER_PORT"
-elif $VIEWER; then
-    echo "Warning: Could not extract LOG_DIR after 30s, skipping viewer" >&2
-fi
-
-# ── Wait for MassGen to finish ───────────────────────────────────────────────
-echo "Waiting for MassGen to complete (PID: $MASSGEN_PID)..."
+# ── Wait for completion ──────────────────────────────────────────────────────
+echo "Waiting for checkpoint to complete (PID: $MASSGEN_PID)..."
 wait "$MASSGEN_PID" || true
 EXIT_CODE=$?
 END_TIME=$(date +%s)
@@ -161,7 +184,7 @@ if [[ -z "$LOG_DIR" && -f "$OUTPUT_LOG" ]]; then
 fi
 
 # ── Write summary ────────────────────────────────────────────────────────────
-VIEWER_PORT_JSON=$($VIEWER && echo "$VIEWER_PORT" || echo "null")
+WEBUI_PORT_JSON=$($WEBUI && echo "$WEBUI_PORT" || echo "null")
 cat > "$SUMMARY_FILE" << ENDJSON
 {
   "exit_code": $EXIT_CODE,
@@ -170,14 +193,14 @@ cat > "$SUMMARY_FILE" << ENDJSON
   "output_file": "$OUTPUT_FILE",
   "output_log": "$OUTPUT_LOG",
   "work_dir": "$WORK_DIR",
-  "viewer_port": $VIEWER_PORT_JSON,
+  "webui_port": $WEBUI_PORT_JSON,
   "completed_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 }
 ENDJSON
 
 echo ""
 echo "═══════════════════════════════════════════"
-echo "  MassGen complete"
+echo "  Checkpoint complete"
 echo "  Exit code: $EXIT_CODE"
 echo "  Duration:  ${DURATION}s"
 echo "  Log dir:   ${LOG_DIR:-unknown}"
