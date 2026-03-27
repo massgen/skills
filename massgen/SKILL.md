@@ -1,452 +1,151 @@
 ---
 name: massgen
-description: "Invoke MassGen's multi-agent system for general-purpose tasks, evaluation, planning, or spec writing. Use whenever you want multiple AI agents to tackle a problem, need outside perspective on your work, a thoroughly refined plan, or a well-specified set of requirements. Perfect for: writing, code generation, research, design, analysis, pre-PR review, complex project planning, feature specification, architecture decisions, or any task where multi-agent iteration produces better results than working alone."
+description: "Invoke MassGen's multi-agent system. Use when the user wants multiple AI agents on a task: writing, code, review, planning, specs, research, design, or any task where parallel iteration beats working alone."
 ---
 
-# MassGen
+# MassGen Skill
 
-You are the main agent. MassGen is your team.
+Delegate tasks to your MassGen team.
 
-Each invocation of this skill is a **checkpoint delegation**: you define the task,
-criteria, and context; the team iterates independently and converges on the
-strongest result through checklist-gated voting; you get the deliverables back
-and continue your work.
+## Before You Launch
 
-This is the same pattern as MassGen's checkpoint coordination mode — you are
-the delegator, each MassGen run is a checkpoint, and the results flow back
-to you for integration.
-
-## When to Delegate
-
-**General** (default) — delegate any task to the team:
-- Writing, research, code generation, design, analysis
-- Any task where multiple perspectives improve the result
-- When you want diverse independent attempts converged into one
-
-**Evaluate** — delegate critique of existing work:
-- After iterating and stalling — need outside perspective
-- Before submitting PRs or delivering artifacts
-- When you want diverse critical feedback on implementation quality
-
-**Plan** — delegate structured project planning:
-- Complex features needing task decomposition
-- When an existing plan has gaps or needs restructuring
-- When you need a valid task DAG with verification criteria
-
-**Spec** — delegate requirements specification:
-- Features needing precise requirements before implementation
-- When an existing spec has ambiguities or missing edge cases
-- When you need EARS-formatted requirements with acceptance criteria
-
-## Mode Selection
-
-| Mode | Purpose | Input | Output | Default Criteria |
-|------|---------|-------|--------|-----------------|
-| general | Any task | Task + context | `result.md` + workspace files | Auto-generated |
-| evaluate | Critique work | Artifacts to evaluate | `critique_packet.md`, `verdict.json`, `next_tasks.json` | `"evaluation"` |
-| plan | Create/refine plan | Goal + constraints | `project_plan.json` (tasks, chunks, deps) | `"planning"` |
-| spec | Create/refine spec | Problem + needs | `project_spec.json` (EARS requirements) | `"spec"` |
-
-## First-Time Setup
-
-The launcher script handles this automatically, but here's what happens:
-
-1. **Install check**: MassGen must be installed (`uv tool install massgen`)
-2. **Config check**: looks for `.massgen/config.yaml` or `~/.config/massgen/config.yaml`
-3. **If no config exists**: the script launches the setup wizard (`--web-quickstart`)
-   in the browser. The user picks their models, agent count, and API keys. The
-   wizard writes `.massgen/config.yaml` and exits. All future runs use that config.
-
-To override the auto-discovered config, pass `--config <path>` to the launcher.
-For CLI-based config creation, see `references/config_setup.md`.
-
----
-
-## Workflow
-
-### Step 0: Create Working Directory
+Check that a config exists:
 
 ```bash
-MODE="general"  # or "evaluate", "plan", "spec"
-WORK_DIR=".massgen/$MODE/$(date +%Y%m%d_%H%M%S)"
-mkdir -p "$WORK_DIR"
+ls .massgen/config.yaml 2>/dev/null || ls ~/.config/massgen/config.yaml 2>/dev/null
 ```
 
-### Step 1: Write Context File
+If **no config exists**, set one up:
+- **Default (browser)**: run `uv run massgen --web-quickstart` — user picks
+  models and keys in the browser
+- **Headless**: read `references/config_setup.md` — you discover available
+  backends via `--list-backends`, check the user's API keys, discuss
+  preferences, and generate config with `--quickstart --headless`
 
-Read `references/<mode>/workflow.md` (relative to this skill) for the
-mode-specific context template. Write `$WORK_DIR/context.md` using that template.
+If config exists — launch immediately. No need to ask questions first.
 
-**Key principle**: provide factual context that orients the team. Do NOT bias
-them with your quality opinions — let them discover issues independently.
+## Important: Only Add What's Asked
 
-- **General**: task description, relevant context, quality expectations
-- **Evaluate**: what was built, scope, git info, verification evidence
-- **Plan**: goal, constraints, existing context, success criteria
-- **Spec**: problem, user needs, system boundaries, constraints
+Do NOT add extra flags unless the user explicitly requests them:
+- No `--personas` unless the user asks for diverse approaches
+- No `--plan-depth deep` unless the user wants detailed decomposition
+- No `--quick` unless the user wants speed over quality
 
-### Step 2: Generate Criteria
+The defaults are good. Let MassGen handle the rest.
 
-| Mode | Default | Override |
-|------|---------|---------|
-| general | Auto-generated (omit criteria flags) | `--criteria-file $WORK_DIR/criteria.json` |
-| evaluate | `--criteria-preset evaluation` | `--criteria-file $WORK_DIR/criteria.json` |
-| plan | `--criteria-preset planning` | `--criteria-file $WORK_DIR/criteria.json` |
-| spec | `--criteria-preset spec` | `--criteria-file $WORK_DIR/criteria.json` |
+## Quick Dispatch
 
-For custom criteria, read `references/criteria_guide.md` for the format, then:
+### 1. Detect Mode
 
-```bash
-cat > $WORK_DIR/criteria.json << 'EOF'
+| User Intent | CLI Flags |
+|-------------|-----------|
+| General task (write, build, research, design) | *(default)* |
+| Review/critique existing work | `--checklist-criteria-preset evaluation` |
+| Plan a feature or project | `--plan` |
+| Plan and auto-execute | `--plan-and-execute` |
+| Write requirements/spec | `--spec` |
+| Execute an existing plan | `--execute-plan <path_or_latest>` |
+| Execute against an existing spec | `--execute-spec <path_or_latest>` |
+
+### 2. Write Criteria
+
+**Always write evaluation criteria** tailored to the task. Save to a temp
+file and pass via `--eval-criteria`. Aim for 4-7 criteria.
+
+**Required JSON format** — each criterion needs a `text` field and `category`:
+
+```json
 [
-  {"text": "...", "category": "must"},
-  {"text": "...", "category": "should"},
-  {"text": "...", "category": "could"}
+  {"text": "Aspect: what to look for.", "category": "must"},
+  {"text": "Aspect: what to assess.", "category": "should"},
+  {"text": "Aspect: bonus quality.", "category": "could"}
 ]
-EOF
 ```
 
-### Step 3: Construct the Prompt
+Or wrapped: `{"criteria": [...]}`. See `references/criteria_guide.md` for
+full guidance on writing effective criteria.
 
-1. Read `references/<mode>/prompt_template.md` (relative to this skill)
-2. Read the context file from Step 1
-3. Replace `{{CONTEXT_FILE_CONTENT}}` with the context contents
-4. Replace `{{CUSTOM_FOCUS}}` with focus directive (or empty string)
-5. Write the final prompt to `$WORK_DIR/prompt.md`
+For evaluate/plan/spec modes, you can use `--checklist-criteria-preset`
+instead of writing custom criteria (presets: `evaluation`, `planning`, `spec`,
+`persona`, `decomposition`, `prompt`, `analysis`).
 
-### Step 4: Delegate to Team
+### 3. Build Prompt
 
-Use the launcher script to delegate. **The WebUI runs by default** — tell the
-user they can watch the team's progress at `http://localhost:8000`.
+**General**: User's task with relevant context.
+
+**Evaluate**: What to evaluate. Auto-gather git diff, changed files, test
+output. Keep it factual — what was built, not your quality opinion. Let
+agents discover issues independently.
+
+**Plan**: Goal + constraints.
+
+**Spec**: Problem statement + user needs + constraints.
+
+### 4. Choose CWD Context
+
+| Scenario | Flag |
+|----------|------|
+| Task references the codebase | `--cwd-context ro` |
+| Agents should write directly to the project | `--cwd-context rw` |
+| Isolated task, no codebase needed (default) | *(omit flag)* |
+
+### 5. Run
+
+Always use the wrapper script:
 
 ```bash
-# SKILL_DIR is the directory containing this SKILL.md
 bash "$SKILL_DIR/scripts/massgen_run.sh" \
-  --work-dir "$WORK_DIR" \
-  --prompt-file "$WORK_DIR/prompt.md"
+  --mode general --cwd-context off \
+  --criteria /tmp/massgen_criteria.json \
+  "Create an SVG of a butterfly mixed with a panda"
 ```
 
-**Run in the background** using your agent's native mechanism (e.g.,
-`run_in_background` in Claude Code).
+The wrapper includes `--web --no-browser` by default. The run starts
+immediately — the user can open http://localhost:8000/ anytime to monitor
+progress. **Tell the user about this URL.**
 
-Add mode-specific flags as needed:
+Run in the background. MassGen prints these for tracking:
+- `LOG_DIR: <path>` — full run data
+- `STATUS: <path>/status.json` — live status
+- `ANSWER: <path>` — winning agent's answer.txt
 
-```bash
-# With custom criteria
-  --criteria-file "$WORK_DIR/criteria.json"
+Expect 15-45 minutes for multi-round runs.
 
-# With preset criteria (plan/spec modes)
-  --criteria-preset planning
+### 6. Read Results
 
-# With custom config
-  --config "$CONFIG_PATH"
+Read the `ANSWER:` path from the output. The winning agent's workspace is
+always in the `workspace/` directory next to `answer.txt`.
 
-# Headless (no WebUI)
-  --no-webui
+Workspace paths in `answer.txt` are best-effort normalized to reference the
+adjacent `workspace/` directory. However, always navigate to the `workspace/`
+next to `answer.txt` as the ground truth — not paths mentioned in the text.
 
-# Different WebUI port
-  --webui-port 9000
+For **plan** mode, `project_plan.json` is in the workspace.
+For **spec** mode, `project_spec.json` is in the workspace.
 
-# Additional massgen flags
-  --extra-args "..."
-```
+## Optional Flags (only when requested)
 
-**After the background task completes**, read the summary:
+| Flag | Purpose |
+|------|---------|
+| `--quick` | One-shot, no voting/refinement |
+| `--plan-depth <level>` | Decomposition depth: `dynamic` (default), `shallow`, `medium`, `deep` |
+| `--plan-thoroughness thorough` | Deeper strategic reasoning (default: `standard`) |
+| `--personas <style>` | Agent diversity: `perspective`, `implementation`, `methodology`, or `off` |
+| `--cwd-context ro` | Give agents read access to codebase |
+| `--cwd-context rw` | Give agents write access to codebase |
+| `--web --no-browser` | Enable WebUI for watching progress (on by default in wrapper) |
 
-```bash
-cat $WORK_DIR/run_summary.json
-```
+## Config
 
-**Timing**: expect 15-45 minutes. Do not assume something is stuck — MassGen
-runs multiple agents through several rounds of iteration.
+MassGen auto-discovers config from `.massgen/config.yaml` or
+`~/.config/massgen/config.yaml`. See setup instructions above.
 
-### Step 5: Parse Checkpoint Results
+## References
 
-The output depends on the mode. The winner's workspace path is in
-`$WORK_DIR/result.md` (look for "Workspace cwd") or in `status.json`
-in the log directory (`workspace_paths`).
+Only consult when the quick dispatch isn't enough:
 
-- **General**: winner's answer in `result.md`, deliverable files in workspace
-- **Evaluate**: `verdict.json`, `next_tasks.json`, `critique_packet.md`
-- **Plan**: `project_plan.json` with chunks, dependencies, verification
-- **Spec**: `project_spec.json` with EARS requirements and acceptance criteria
-
-See `references/<mode>/workflow.md` for detailed output structure per mode.
-
-### Step 6: Resume — Ground in Your Task System
-
-**This is the most critical step for evaluate, plan, and spec modes.** The team
-produced structured results — now you resume as the main agent and internalize
-them into tracked tasks.
-
-For **general mode**, grounding is optional — apply when the output contains
-task lists or action items, but many general delegations produce artifacts
-(code, documents, designs) rather than tasks.
-
-**Why this matters**: without grounding, you'll execute the first few tasks
-then drift — forgetting verification steps, skipping later tasks, losing
-dependencies. Grounding forces you to commit to the full scope.
-
-1. **Enter your task planning mode** (TodoWrite, or equivalent)
-2. **Create one tracked task per item** from the checkpoint results:
-   - **Evaluate**: each task from `next_tasks.json` → tracked task
-   - **Plan**: each task from `project_plan.json` → tracked task
-   - **Spec**: each requirement from `project_spec.json` → tracked task
-3. **Preserve dependency order** — don't flatten the DAG
-4. **Include verification as explicit tasks** — verification that isn't tracked doesn't happen
-5. **Mark status** as you work: pending → in_progress → completed
-
-### Step 7: Execute and Iterate
-
-Execute the grounded tasks in order. When you hit a point that warrants
-another delegation — a review gate, a complex sub-problem, or diminishing
-returns — delegate again (go back to Step 0).
-
-**Mode-specific guidance:**
-
-- **General**: read `result.md`, copy deliverable files from workspace
-- **Evaluate**: read `verdict.json` — if `"iterate"`, check `approach_assessment`
-  in `next_tasks.json`:
-  - `ceiling_not_reached` → execute `fix_tasks`, then `evolution_tasks` as stretch
-  - `ceiling_approaching` → execute `fix_tasks`, then `evolution_tasks`
-  - `ceiling_reached` → consider re-delegating in plan mode with evaluation findings
-  - If `"converged"`, proceed to delivery
-- **Plan / Spec**: store result as living document (see below), execute chunk by chunk
-
-## Living Document Protocol (Plan & Spec)
-
-### Store
-
-```
-.massgen/plans/plan_<timestamp>/
-├── workspace/          # Mutable working copy
-│   ├── plan.json       # or spec.json
-│   └── research/       # Auxiliary files
-├── frozen/             # Immutable snapshot at creation
-│   ├── plan.json
-│   └── research/
-└── plan_metadata.json
-```
-
-### Read on Restart
-
-**First action in every new session**: read `workspace/plan.json` (or
-`workspace/spec.json`). This is the source of truth.
-
-### Update Continuously
-
-As tasks complete, update the workspace copy. Mark status, add notes,
-record discoveries. The workspace copy is a living document.
-
-### Check Drift
-
-Compare `workspace/` against `frozen/` periodically. High divergence
-means re-evaluate whether the plan is still valid.
-
-### Refine via Delegation
-
-If the plan proves wrong or incomplete, re-invoke this skill with the
-workspace copy as context to get multi-agent refinement. This creates
-a new plan directory with a fresh `frozen/` snapshot.
-
-## Checkpoint Loop
-
-For complex or creative projects, use iterative delegation — each
-iteration is another checkpoint where you delegate to the team.
-
-```
-Delegate (plan) → Execute → Delegate (evaluate) → Fix or Re-plan → ...
-```
-
-### When to Use
-
-- The task has exploratory components (visual design, creative writing, UX)
-- The project is complex enough that the initial plan is partly speculative
-- Quality expectations are high
-- Prior iterations show diminishing returns
-
-### Protocol
-
-1. **Delegate (plan)**: invoke plan mode. Team classifies tasks as
-   `deterministic` or `exploratory` and creates prototypes
-2. **Execute**: implement chunk by chunk
-3. **Delegate (evaluate)**: at review gates or after exploratory chunks,
-   invoke evaluate mode
-4. **Decide**: read `approach_assessment`:
-   - `ceiling_not_reached` → execute fix_tasks, continue
-   - `ceiling_approaching` → execute fix + evolution tasks, continue
-   - `ceiling_reached` → re-delegate in plan mode with evaluation discoveries
-5. **Evolve**: if re-planning, pass `approach_assessment` and `breakthroughs`
-   as context. The new plan amplifies what worked
-6. **Repeat** until evaluation returns "converged"
-
-### Termination
-
-- Max 3 plan mutations per chunk — escalate to user if still not converging
-- If evaluation returns "converged", the loop is complete
-- If the user provides direction, follow it regardless of ceiling status
-
-## Mode Overviews
-
-### General
-
-Delegate any task to the team. Agents independently produce solutions and
-converge through voting. No fixed output schema — output depends on the task.
-See `references/general/workflow.md`.
-
-### Evaluate
-
-Delegate critique of existing work. Evaluators produce structured critique
-with machine-readable verdict, scores, and actionable tasks. The key outputs
-are `verdict.json` (iterate vs converged), `next_tasks.json` (implementation
-handoff), and `critique_packet.md` (full prose critique with approach assessment).
-See `references/evaluate/workflow.md`.
-
-### Plan
-
-Delegate project planning. Planners decompose the goal into a task DAG with
-chunks, dependencies, verification criteria, and technology choices. Each
-round improves task quality. See `references/plan/workflow.md`.
-
-### Spec
-
-Delegate requirements specification. Spec agents produce EARS-formatted
-requirements with acceptance criteria, rationale, and verification. Each
-round eliminates ambiguities and fills gaps. See `references/spec/workflow.md`.
-
-## Examples
-
-### General: Multi-Agent Task Execution
-
-```bash
-WORK_DIR=".massgen/general/$(date +%Y%m%d_%H%M%S)"
-mkdir -p "$WORK_DIR"
-
-cat > $WORK_DIR/context.md << 'EOF'
-## Task
-Build a responsive landing page for a developer tool that converts
-CSV files to JSON. Single page with hero, features, and CTA sections.
-
-## Context
-- Target audience: developers and data engineers
-- Tech stack: HTML, CSS, vanilla JS (no frameworks)
-- Must work on mobile and desktop
-
-## Quality Expectations
-- Visually polished, not template-looking
-- Fast load time, no external dependencies
-EOF
-
-# Build prompt from references/general/prompt_template.md, then:
-bash "$SKILL_DIR/scripts/massgen_run.sh" \
-  --work-dir "$WORK_DIR" \
-  --prompt-file "$WORK_DIR/prompt.md"
-```
-
-### Evaluate: Pre-PR Review
-
-```bash
-WORK_DIR=".massgen/evaluate/$(date +%Y%m%d_%H%M%S)"
-mkdir -p "$WORK_DIR"
-
-cat > $WORK_DIR/context.md << 'EOF'
-## Deliverables in Scope
-- `src/api/handler.ts` — API request handler
-- `src/hooks/useAuth.ts` — authentication hook
-
-## Out of Scope
-- Test files, CI config
-
-## Original Task
-Add JWT authentication to the API layer
-
-## What Was Done
-Implemented JWT validation in handler and auth hook for React components.
-
-## Verification Evidence
-pytest: 24 passed, 0 failed
-EOF
-
-cat > $WORK_DIR/criteria.json << 'EOF'
-[
-  {"text": "Auth security: JWT validation covers expiration, signature, and audience.", "category": "must"},
-  {"text": "Error handling: invalid/expired tokens produce clear error responses.", "category": "must"},
-  {"text": "Code quality: clean separation between auth logic and business logic.", "category": "should"}
-]
-EOF
-
-# Build prompt from template, then:
-bash "$SKILL_DIR/scripts/massgen_run.sh" \
-  --work-dir "$WORK_DIR" \
-  --prompt-file "$WORK_DIR/prompt.md" \
-  --criteria-file "$WORK_DIR/criteria.json"
-```
-
-### Plan: Feature Planning
-
-```bash
-WORK_DIR=".massgen/plan/$(date +%Y%m%d_%H%M%S)"
-mkdir -p "$WORK_DIR"
-
-cat > $WORK_DIR/context.md << 'EOF'
-## Goal
-Add real-time collaboration to the document editor — multiple users
-editing the same document simultaneously with cursor presence.
-
-## Constraints
-- Must work with existing PostgreSQL database
-- Timeline: 2 weeks, team of 2
-
-## Existing Context
-Express.js backend, React frontend, WebSocket used for notifications.
-
-## Success Criteria
-Two users edit the same document with <500ms sync latency and no data loss.
-EOF
-
-# Build prompt from references/plan/prompt_template.md, then:
-bash "$SKILL_DIR/scripts/massgen_run.sh" \
-  --work-dir "$WORK_DIR" \
-  --prompt-file "$WORK_DIR/prompt.md" \
-  --criteria-preset planning
-```
-
-### Spec: Feature Specification
-
-```bash
-WORK_DIR=".massgen/spec/$(date +%Y%m%d_%H%M%S)"
-mkdir -p "$WORK_DIR"
-
-cat > $WORK_DIR/context.md << 'EOF'
-## Problem Statement
-Users cannot recover deleted items — deletion is permanent and irreversible.
-
-## User Needs
-- End users: accidentally delete items, need easy recovery
-- Admins: purge items for compliance after retention period
-
-## Constraints
-- PostgreSQL, soft-delete pattern preferred
-- 30-day retention before permanent purge
-- Must not break existing API consumers
-EOF
-
-# Build prompt from references/spec/prompt_template.md, then:
-bash "$SKILL_DIR/scripts/massgen_run.sh" \
-  --work-dir "$WORK_DIR" \
-  --prompt-file "$WORK_DIR/prompt.md" \
-  --criteria-preset spec
-```
-
-## Reference Files
-
-- `references/config_setup.md` — CLI-based config creation (headless quickstart, list backends)
-- `references/general/workflow.md` — general mode context template and output handling
-- `references/general/prompt_template.md` — general prompt template with placeholders
-- `references/criteria_guide.md` — how to write quality criteria (format, tiers, examples)
-- `references/evaluate/workflow.md` — evaluate mode context, output structure, examples
-- `references/evaluate/prompt_template.md` — evaluation prompt template
-- `references/plan/workflow.md` — plan mode context, output format, lifecycle
-- `references/plan/prompt_template.md` — planning prompt template
-- `references/spec/workflow.md` — spec mode context, output format, lifecycle
-- `references/spec/prompt_template.md` — spec prompt template
+| File | When |
+|------|------|
+| `references/criteria_guide.md` | Criteria format, tiers, examples |
+| `references/config_setup.md` | Headless config creation |
+| `references/advanced_workflows.md` | Checkpoint loops, living documents, structured eval, plan-evaluate integration |
