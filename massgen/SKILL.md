@@ -49,21 +49,33 @@ The defaults are good. Let MassGen handle the rest.
 
 ### 2. Write Criteria
 
-**Always write evaluation criteria** tailored to the task. Save to a temp
-file and pass via `--eval-criteria`. Aim for 4-7 criteria.
+**Always write opinionated evaluation criteria** tailored to the task. Criteria
+shape what agents produce, not just how they're scored. Save to a temp file and
+pass via `--eval-criteria`. Aim for 4-7 criteria.
 
-**Required JSON format** — each criterion needs a `text` field and `category`:
+**Required JSON format** — each criterion needs `text`, `category`, and `anti_patterns`:
 
 ```json
-[
-  {"text": "Aspect: what to look for.", "category": "must"},
-  {"text": "Aspect: what to assess.", "category": "should"},
-  {"text": "Aspect: bonus quality.", "category": "could"}
-]
+{
+  "aspiration": "A site a designer would screenshot for their portfolio",
+  "criteria": [
+    {
+      "text": "Design coherence: Does it feel authored or assembled? ...",
+      "category": "primary",
+      "anti_patterns": ["unmodified library defaults", "AI-generic aesthetics"]
+    },
+    {
+      "text": "Content depth: Every section teaches something specific ...",
+      "category": "standard",
+      "anti_patterns": ["Wikipedia-summary prose", "filler sections"]
+    }
+  ]
+}
 ```
 
-Or wrapped: `{"criteria": [...]}`. See `references/criteria_guide.md` for
-full guidance on writing effective criteria.
+Categories: `primary` (ONE — where the model needs most push), `standard`
+(must-pass), `stretch` (nice-to-have). See `references/criteria_guide.md` for
+full guidance on writing effective opinionated criteria.
 
 For evaluate/plan/spec modes, you can use `--checklist-criteria-preset`
 instead of writing custom criteria (presets: `evaluation`, `planning`, `spec`,
@@ -83,21 +95,36 @@ agents discover issues independently.
 
 ### 4. Choose CWD Context
 
+**Default to `rw` when the task produces files.** If the deliverable is a file
+(code, docs, config, README, website, etc.), agents need write access. Use `ro`
+only when agents need to *read* the codebase for context but their output is
+pure text (an answer, review, or analysis) — not files.
+
 | Scenario | Flag |
 |----------|------|
-| Task references the codebase | `--cwd-context ro` |
-| Agents should write directly to the project | `--cwd-context rw` |
+| Task produces/modifies files in the project (code, docs, configs, etc.) | `--cwd-context rw` |
+| Task needs codebase context but output is text only (review, analysis, Q&A) | `--cwd-context ro` |
 | Isolated task, no codebase needed (default) | *(omit flag)* |
+
+**Rule of thumb**: if the user says "write", "create", "build", "rewrite",
+"update", or "edit" something in the project → `rw`.
 
 ### 5. Run
 
 Always use the wrapper script:
 
 ```bash
+# Isolated task (default, no cwd-context needed)
 bash "$SKILL_DIR/scripts/massgen_run.sh" \
-  --mode general --cwd-context off \
+  --mode general \
   --criteria /tmp/massgen_criteria.json \
   "Create an SVG of a butterfly mixed with a panda"
+
+# Task that writes to the project → rw
+bash "$SKILL_DIR/scripts/massgen_run.sh" \
+  --mode general --cwd-context rw \
+  --criteria /tmp/massgen_criteria.json \
+  "Rewrite the README with better examples and structure"
 ```
 
 The wrapper includes `--web --no-browser` by default. The run starts
@@ -110,6 +137,59 @@ Run in the background. MassGen prints these for tracking:
 - `ANSWER: <path>` — winning agent's answer.txt
 
 Expect 15-45 minutes for multi-round runs.
+
+### 5b. Review Notification (when `--cwd-context rw`)
+
+When agents have write access (`--cwd-context rw`), automatically add
+`--web-review` so the user can review git diffs before changes are applied.
+Review requires `--web` (the wrapper's default).
+
+**Headless (`--no-web`)**: If the user explicitly requests headless mode
+with `--cwd-context rw`, skip `--web-review` — changes are applied directly
+without a review gate. Warn the user that there will be no diff review.
+
+After launching the MassGen run, **also launch the review watcher** in the
+background. Parse `LOG_DIR` from the MassGen output first:
+
+```bash
+# Launch the watcher (reads LOG_DIR from the MassGen run output)
+bash "$SKILL_DIR/scripts/review_watcher.sh" "$LOG_DIR"
+```
+
+The watcher polls `status.json` and prints structured markers when review
+is ready:
+
+```
+__REVIEW_PENDING__
+REVIEW_URL: http://localhost:8000/?v=2
+REVIEW_API: http://localhost:8000/api/sessions/{id}/review-response
+FILES_CHANGED: src/foo.py (M), src/bar.py (A)
+__END_REVIEW_INFO__
+```
+
+When you see `__REVIEW_PENDING__`, tell the user:
+> "MassGen has changes ready for review. You can open the WebUI to review
+> diffs visually, or tell me which files to approve/reject."
+
+**Two resolution paths:**
+
+1. **Browser**: User opens the REVIEW_URL and approves/rejects in the UI.
+2. **Agent (text-based)**: Fetch diffs via `GET /api/sessions/{id}/review`,
+   show the user a summary, then submit their decision:
+   ```bash
+   # Approve all
+   curl -X POST "$REVIEW_API" -H "Content-Type: application/json" \
+     -d '{"approved": true, "action": "approve"}'
+   # Approve specific files
+   curl -X POST "$REVIEW_API" -H "Content-Type: application/json" \
+     -d '{"approved": true, "approved_files": ["src/foo.py"]}'
+   # Reject all
+   curl -X POST "$REVIEW_API" -H "Content-Type: application/json" \
+     -d '{"approved": false, "action": "reject"}'
+   ```
+
+Either path resolves the review — the other side auto-closes. After
+resolution, `__REVIEW_COMPLETE__ APPROVED=true|false` is printed.
 
 ### 6. Read Results
 

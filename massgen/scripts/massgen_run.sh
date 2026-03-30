@@ -28,9 +28,11 @@ CWD_CTX="off"
 QUICK=false
 WEB=true
 WEB_PORT=8000
+WEB_REVIEW=false
 CRITERIA=""
 CONFIG=""
 EXTRA_ARGS=()
+SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -40,6 +42,7 @@ while [[ $# -gt 0 ]]; do
         --web)         WEB=true; shift ;;
         --no-web)      WEB=false; shift ;;
         --web-port)    WEB_PORT="$2"; shift 2 ;;
+        --web-review)  WEB_REVIEW=true; shift ;;
         --criteria)    CRITERIA="$2"; shift 2 ;;
         --config)      CONFIG="$2"; shift 2 ;;
         --extra)       # shellcheck disable=SC2206
@@ -77,6 +80,7 @@ esac
 # Options
 if $QUICK; then CMD+=(--quick); fi
 if $WEB; then CMD+=(--web --no-browser --web-port "$WEB_PORT"); fi
+if $WEB_REVIEW; then CMD+=(--web-review); fi
 if [[ -n "$CRITERIA" ]]; then CMD+=(--eval-criteria "$CRITERIA"); fi
 if [[ -n "$CONFIG" ]]; then CMD+=(--config "$CONFIG"); fi
 # Append extra args (guard against unbound empty array with set -u)
@@ -85,4 +89,31 @@ if [[ ${#EXTRA_ARGS[@]} -gt 0 ]]; then CMD+=("${EXTRA_ARGS[@]}"); fi
 # Prompt last
 CMD+=("$PROMPT")
 
-exec "${CMD[@]}"
+# If web-review is enabled, run MassGen in background and start the review watcher.
+# The watcher polls status.json and prints structured markers when review is pending.
+if $WEB_REVIEW; then
+    "${CMD[@]}" &
+    MASSGEN_PID=$!
+
+    # Wait briefly for LOG_DIR to be printed, then extract it from status.json
+    sleep 3
+    # Find the latest log dir from ~/.massgen/massgen_logs
+    LOG_DIR=$(ls -td ~/.massgen/massgen_logs/*/  2>/dev/null | head -1)
+    if [[ -n "$LOG_DIR" ]]; then
+        "$SKILL_DIR/scripts/review_watcher.sh" "$LOG_DIR" &
+        WATCHER_PID=$!
+    fi
+
+    # Wait for MassGen to finish
+    wait "$MASSGEN_PID" 2>/dev/null
+    EXIT_CODE=$?
+
+    # Clean up watcher
+    if [[ -n "${WATCHER_PID:-}" ]]; then
+        kill "$WATCHER_PID" 2>/dev/null || true
+    fi
+
+    exit "$EXIT_CODE"
+else
+    exec "${CMD[@]}"
+fi
